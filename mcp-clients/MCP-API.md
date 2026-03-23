@@ -52,7 +52,7 @@ SidecarOneStep mcp
 
 **返回**（text 内容为 JSON 数组）
 ```json
-{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"[\n  \"XX的iPad Pro\"\n]"}]}}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"[\n  \"张易的iPad Pro\"\n]"}]}}
 ```
 
 ---
@@ -62,12 +62,12 @@ SidecarOneStep mcp
 
 **请求**
 ```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"connect_device","arguments":{"device_name":"XX的iPad Pro","wired":false}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"connect_device","arguments":{"device_name":"张易的iPad Pro","wired":false}}}
 ```
 
 **返回**
 ```json
-{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"XX的iPad Pro"}]}}
+{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"张易的iPad Pro"}]}}
 ```
 
 ---
@@ -77,7 +77,7 @@ SidecarOneStep mcp
 
 **请求**
 ```json
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"connect_device_async","arguments":{"device_name":"XX的iPad Pro","wired":false}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"connect_device_async","arguments":{"device_name":"张易的iPad Pro","wired":false}}}
 ```
 
 **返回**
@@ -97,7 +97,7 @@ SidecarOneStep mcp
 
 **返回**（status: pending / success / failed / cancelled / not_found）
 ```json
-{"jsonrpc":"2.0","id":5,"result":{"content":[{"type":"text","text":"{\n  \"id\" : \"<uuid>\",\n  \"type\" : \"connect\",\n  \"device_name\" : \"XX的iPad Pro\",\n  \"wired\" : false,\n  \"status\" : \"success\",\n  \"result\" : \"XX的iPad Pro\",\n  \"error\" : null,\n  \"created_at\" : \"2026-03-09T12:34:56.789Z\"\n}"}]}}
+{"jsonrpc":"2.0","id":5,"result":{"content":[{"type":"text","text":"{\n  \"id\" : \"<uuid>\",\n  \"type\" : \"connect\",\n  \"device_name\" : \"张易的iPad Pro\",\n  \"wired\" : false,\n  \"status\" : \"success\",\n  \"result\" : \"张易的iPad Pro\",\n  \"error\" : null,\n  \"created_at\" : \"2026-03-09T12:34:56.789Z\"\n}"}]}}
 ```
 
 ---
@@ -122,7 +122,7 @@ SidecarOneStep mcp
 
 **请求**
 ```json
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"disconnect_device","arguments":{"device_name":"XX的iPad Pro"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"disconnect_device","arguments":{"device_name":"张易的iPad Pro"}}}
 ```
 
 ---
@@ -157,7 +157,7 @@ SidecarOneStep mcp
 
 **返回**（text 内容为 JSON）
 ```json
-{"jsonrpc":"2.0","id":10,"result":{"content":[{"type":"text","text":"{\n  \"server_running\" : true,\n  \"server_port\" : 8765,\n  \"active_device\" : \"XX的iPad Pro\",\n  \"active_wired\" : false\n}"}]}}
+{"jsonrpc":"2.0","id":10,"result":{"content":[{"type":"text","text":"{\n  \"server_running\" : true,\n  \"server_port\" : 8765,\n  \"active_device\" : \"张易的iPad Pro\",\n  \"active_wired\" : false\n}"}]}}
 ```
 
 ---
@@ -172,13 +172,158 @@ SidecarOneStep mcp
 
 ---
 
+### 11) virtual_display_status
+获取虚拟显示器状态。
+
+**请求**
+```json
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"virtual_display_status","arguments":{}}}
+```
+
+**返回**（text 内容为 JSON）
+```json
+{"jsonrpc":"2.0","id":12,"result":{"content":[{"type":"text","text":"{\n  \"enabled\" : true,\n  \"active\" : true,\n  \"definition_id\" : 10\n}"}]}}
+```
+
+**字段说明**
+- `enabled`: 是否在设置中启用了虚拟显示器
+- `active`: 虚拟显示器是否正在运行
+- `definition_id`: 当前选择的尺寸预设 ID
+
+---
+
+### 12) list_virtual_display_sizes
+列出可用虚拟显示器尺寸。
+
+**请求**
+```json
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"list_virtual_display_sizes","arguments":{}}}
+```
+
+**返回**（text 内容为 JSON 数组）
+```json
+{"jsonrpc":"2.0","id":13,"result":{"content":[{"type":"text","text":"[\n  {\n    \"id\" : 10,\n    \"description\" : \"16:9 (HD/4K/5K/6K)\"\n  }\n]"}]}}
+```
+
+**可用尺寸预设**（部分常用）
+| ID  | 描述 |
+|-----|------|
+| 10  | 16:9 (HD/4K/5K/6K) - 默认 |
+| 20  | 16:10 (W*XGA) |
+| 30  | 4:3 (VGA, iPad) |
+| 40  | 17:9 (4K-DCI) |
+| 50  | 21.3:9 (UW-HD/4K/5K) |
+| 60  | 21.5:9 (UW-QHD) |
+| 70  | 24:10 (UW-QHD+) |
+| 80  | 32:10 (D-W*XGA) |
+| 90  | 32:9 (D-HD/QHD) |
+| 100 | 1:1 (Square) |
+| 110 | 9:16 (Portrait) |
+| 380 | iPad mini 6 (2266x1488) |
+| 390 | iPad Air 11 (2360x1640) |
+| 400 | iPad Pro 11 (2388x1668) |
+| 410 | iPad Pro 11 (2420x1668) |
+| 420 | iPad Air 13 (2732x2048) |
+| 430 | iPad Pro 12.9 (2732x2048) |
+| 440 | iPad Pro 13 (2752x2064) |
+
+---
+
+### 13) set_virtual_display_size
+设置虚拟显示器尺寸（definition_id）。
+
+**请求**
+```json
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"set_virtual_display_size","arguments":{"definition_id":10}}}
+```
+
+**参数说明**
+- `definition_id`: 尺寸预设 ID（整数），使用 `list_virtual_display_sizes` 获取可用 ID
+
+**返回**
+```json
+{"jsonrpc":"2.0","id":14,"result":{"content":[{"type":"text","text":"{\n  \"ok\" : true,\n  \"definition_id\" : 10\n}"}]}}
+```
+
+**注意**：如果虚拟显示器已启用，设置新尺寸会自动重新创建显示器。
+
+---
+
+### 14) enable_virtual_display
+开启虚拟显示器（使用当前选择的尺寸）。
+
+**请求**
+```json
+{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"enable_virtual_display","arguments":{}}}
+```
+
+**返回**
+```json
+{"jsonrpc":"2.0","id":15,"result":{"content":[{"type":"text","text":"{\n  \"ok\" : true,\n  \"definition_id\" : 10\n}"}]}}
+```
+
+**失败返回示例**
+```json
+{"jsonrpc":"2.0","id":15,"result":{"content":[{"type":"text","text":"{\n  \"ok\" : false,\n  \"definition_id\" : 10\n}"}]}}
+```
+
+**注意**：启用失败通常是权限或系统版本问题。
+
+---
+
+### 15) disable_virtual_display
+关闭虚拟显示器。
+
+**请求**
+```json
+{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"disable_virtual_display","arguments":{}}}
+```
+
+**返回**
+```json
+{"jsonrpc":"2.0","id":16,"result":{"content":[{"type":"text","text":"{\n  \"ok\" : true\n}"}]}}
+```
+
+---
+
 ## 建议流程
 
-1. `list_devices`
-2. `connect_device_async`
-3. 轮询 `get_job_status` 直到 `success`
+### Sidecar 设备连接
+1. `list_devices` - 列出可用设备
+2. `connect_device_async` - 异步连接（避免超时）
+3. 轮询 `get_job_status` 直到 `status` 为 `success`
+
+### 虚拟显示器操作
+1. `list_virtual_display_sizes` - 查看可用尺寸
+2. `set_virtual_display_size` - 选择尺寸（可选，默认 ID 10）
+3. `enable_virtual_display` - 启用虚拟显示器
+4. `virtual_display_status` - 检查状态
+5. `disable_virtual_display` - 不用时关闭
+
+**推荐尺寸**
+- 默认使用 ID 10 (16:9 通用比例)
+- iPad 用户推荐 ID 380-440（匹配实际设备分辨率）
+- 超宽屏需求可用 ID 50-90
 
 ## 常见问题
 
-- **connect_device 超时**：请用 `connect_device_async`
-- **设备不在列表**：确认 iPad 解锁、同一 Apple ID、已启用 Sidecar
+### Sidecar 连接问题
+- **connect_device 超时**：使用 `connect_device_async` 避免阻塞
+- **设备不在列表**：确认 iPad 已解锁、同一 Apple ID、Sidecar 已启用
+- **连接失败**：检查网络连接、蓝牙状态、设备距离
+
+### 虚拟显示器问题
+- **启用失败**：检查系统权限（屏幕录制权限）、macOS 版本（需 12.0+）
+- **显示器不显示**：检查系统偏好设置 → 显示器
+- **性能问题**：尝试降低分辨率（选择较小尺寸预设）
+
+### MCP 服务问题
+- **mcp 命令退出**：检查设置中是否启用了 MCP (stdio)
+- **工具调用无响应**：检查 JSON-RPC 格式、id 唯一性
+- **日志查看**：使用 `get_logs` 工具查看最近操作记录
+
+## 版本信息
+
+- **当前版本**: 1.4.0
+- **新增功能**: 虚拟显示器支持（v1.4.0）
+- **MCP 工具总数**: 15 个
