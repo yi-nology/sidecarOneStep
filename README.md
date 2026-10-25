@@ -23,7 +23,7 @@
   <a href="https://github.com/yi-nology/sidecarOneStep/releases">
     <img src="https://img.shields.io/github/v/release/yi-nology/sidecarOneStep?style=flat-square" alt="Release">
   </a>
-  <a href="https://github.com/yi-nology/sidecarOneStep/blob/master/LICENSE">
+  <a href="https://github.com/yi-nology/sidecarOneStep/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/yi-nology/sidecarOneStep?style=flat-square" alt="License">
   </a>
   <a href="https://github.com/yi-nology/sidecarOneStep/stargazers">
@@ -261,122 +261,267 @@ open SidecarOneStep.xcodeproj
 
 ### 自动化示例
 
+> **前置条件**
+> 1. 偏好设置里开启「启动时自动启动 Web 服务」，或从菜单栏手动「启动 Web 服务」
+> 2. 记下实际端口（默认 `8080`）
+> 3. 设备名先用 `GET /devices` 查出来，**脚本里不要硬编码**（设备名含空格和中文，变了就失效）
+
+> 💡 **SidecarOneStep 本身还没有全局快捷键**（自定义快捷键排在 v1.1 路线图里）。
+> 下面所有方案都是用 macOS 现成的自动化工具当「触发器」，再通过 REST API 驱动 App 干活。
+
 #### 快捷指令（Shortcuts）
 
-**创建快捷指令：**
-1. 打开"快捷指令" App
-2. 创建新快捷指令
-3. 添加"获取 URL 内容"动作
-4. 输入 URL：`http://localhost:8080/api/connect?device=iPad-Pro-11`
+用 macOS 自带的「快捷指令」App：
 
-**常用动作：**
-```
-# 连接设备
-GET http://localhost:8080/api/connect?device=iPad-Pro-11
+1. 新建快捷指令，命名如「连接随航」
+2. 添加「获取 URL 内容」动作
+3. 方法选 **POST**（不是 GET）
+4. URL：`http://localhost:8080/connect`
+5. 点「添加请求头」：`Content-Type` = `application/json`
+6. 请求体选「JSON」：`{"name":"iPad Pro","wired":true}`
+7. 保存后点 ⌘⌥ 打开「快捷指令」App →「键盘快捷键」→ 找到这个快捷指令 → 分配组合键
 
-# 断开连接
-GET http://localhost:8080/api/disconnect
-
-# 查询状态
-GET http://localhost:8080/api/status
-
-# 获取设备列表
-GET http://localhost:8080/api/devices
-```
+断开同理：URL 换成 `/disconnect`，请求体 `{"name":"iPad Pro"}`。
 
 #### Raycast
 
-**创建 Script Command：**
+创建 Script Command，脚本存到 `~/Library/Application Support/Raycast/Scripts/sidecar.sh`：
 
-1. 创建脚本文件 `sidecar-connect.sh`：
 ```bash
 #!/bin/bash
 # @raycast.schemaVersion 1
-# @raycast.title Sidecar Connect
+# @raycast.title Sidecar
+# @raycast.description 连接 / 断开 / 切换 iPad 随航
 # @raycast.mode silent
+# @raycast.argument1 { "type": "text", "placeholder": "connect | disconnect | toggle | devices", "optional": false }
+# @raycast.argument2 { "type": "text", "placeholder": "设备名（留空 = 第一个可用设备）", "optional": true }
+# @raycast.argument3 { "type": "text", "placeholder": "wired | wireless（留空 = 不强制）", "optional": true }
 
-ACTION="${1:-status}"
-API_URL="http://localhost:8080/api"
+API="http://localhost:${SIDECAR_PORT:-8080}"
+ACTION="$1"
+NAME="$2"
+MODE="$3"
 
-case $ACTION in
-  connect)
-    curl -s "$API_URL/connect?device=iPad-Pro-11"
-    echo "Sidecar connected!"
-    ;;
-  disconnect)
-    curl -s "$API_URL/disconnect"
-    echo "Sidecar disconnected!"
-    ;;
-  status)
-    curl -s "$API_URL/status"
-    ;;
-  *)
-    echo "Usage: sidecar-connect.sh [connect|disconnect|status]"
-    ;;
+case "$ACTION" in
+  connect)    ENDPOINT="/connect";    METHOD="POST" ;;
+  disconnect) ENDPOINT="/disconnect"; METHOD="POST" ;;
+  toggle)     ENDPOINT="/toggle";     METHOD="POST" ;;
+  devices)    ENDPOINT="/devices";    METHOD="GET" ;;
+  *) echo "用法：connect | disconnect | toggle | devices"; exit 1 ;;
 esac
+
+# 名字留空 = 服务端自动挑第一个可用设备
+BODY="{}"
+if [ -n "$NAME" ]; then
+  if [ "$ENDPOINT" = "/connect" ] && [ -n "$MODE" ]; then
+    BODY="{\"name\":\"$NAME\",\"wired\":$([ "$MODE" = "wired" ] && echo true || echo false)}"
+  else
+    BODY="{\"name\":\"$NAME\"}"
+  fi
+fi
+
+RESP=$(curl -s -X "$METHOD" "$API$ENDPOINT" -H "Content-Type: application/json" -d "$BODY")
+
+# 统一按 code 判断成败（code == 0 才是成功）
+if printf '%s' "$RESP" | grep -q '"code"[[:space:]]*:[[:space:]]*0'; then
+  echo "$RESP"
+else
+  echo "失败：$RESP" >&2
+  exit 1
+fi
 ```
 
-2. 添加到 Raycast Script Commands 目录
-3. 在 Raycast 中搜索并运行
+把文件设为可执行（`chmod +x`），然后在 Raycast 里搜「Sidecar」即可。
 
 #### Alfred Workflow
 
-**创建 Workflow：**
-1. 新建 Workflow
-2. 添加 "Run Script" 动作
-3. 输入脚本：
+**基础版：关键词 + 可选全局快捷键**
+
+1. 新建 Workflow，命名如「Sidecar」
+2. 从右侧拖入 **Run Script** 动作，脚本填：
 
 ```bash
-curl -X POST "http://localhost:8080/api/connect" \
+#!/bin/bash
+API="http://localhost:${SIDECAR_PORT:-8080}"
+DEVICE="${1:-}"        # 留空 = 第一个可用设备
+MODE="${2:-}"          # wired | wireless，留空 = 不强制
+
+BODY="{}"
+if [ -n "$DEVICE" ]; then
+  if [ -n "$MODE" ]; then
+    BODY="{\"name\":\"$DEVICE\",\"wired\":$([ "$MODE" = "wired" ] && echo true || echo false)}"
+  else
+    BODY="{\"name\":\"$DEVICE\"}"
+  fi
+fi
+
+RESP=$(curl -s -X POST "$API/connect" \
   -H "Content-Type: application/json" \
-  -d '{"device_id": "iPad-Pro-11"}'
+  -d "$BODY")
+
+if printf '%s' "$RESP" | grep -q '"code"[[:space:]]*:[[:space:]]*0'; then
+  echo "$RESP"
+else
+  echo "连接失败：$RESP"
+fi
 ```
 
-#### AppleScript 示例
+3. 右键（或双击）Workflow 标题 → **Workflow Settings**
+   - **Keyword**：填 `sidecar`（这就是「口令」：⌥⌘ 打开 Alfred → 输入 `sidecar` → 回车）
+   - **Hotkey**：填 `⌥⌘S` 之类，就能用全局快捷键直接触发，不用打字
+   - 若你的 Alfred 版本没有 Hotkey 字段，改用下面的 Raycast 或 Keyboard Maestro 方案
+4. 断开的话再建一个 Run Script 动作，把 URL 换成 `/disconnect` 即可
+
+**进阶版：用 Script Filter 选设备**
+
+把上面的 Run Script 换成 **Script Filter**（`type: "afzf"`，Keyword 设为 `sidecar`），
+再用 **Run Script**（`type: "bash"`，`withVariables: true`）执行连接：
+
+```bash
+# 1) Script Filter（type: afzf，Keyword 设为 sidecar）——列出设备供 Alfred 搜索
+#    afzf 要求输出 JSON 数组：arg 会作为 {query} 传给下一步
+API="http://localhost:${SIDECAR_PORT:-8080}"
+curl -s "$API/devices" | python3 -c '
+import json, sys
+try:
+    names = json.load(sys.stdin)["data"]["devices"]
+except Exception:
+    names = []
+print(json.dumps(
+    [{"arg": n, "title": n, "subtitle": "Sidecar 设备", "valid": True} for n in names],
+    ensure_ascii=False))
+'
+```
+
+```bash
+# 2) Run Script（bash, withVariables: true）——连接选中的设备
+DEVICE="{query}"
+BODY="{}"
+[ -n "$DEVICE" ] && BODY="{\"name\":\"$DEVICE\"}"
+curl -s -X POST "http://localhost:${SIDECAR_PORT:-8080}/connect" \
+  -H "Content-Type: application/json" \
+  -d "$BODY"
+```
+
+#### Automator / AppleScript
+
+**Automator**（拿全局快捷键最省事的办法）：
+
+1. 新建 Automator 动作 → 选「快速操作」或「应用程序」
+2. 拖入 **Run Shell Script**，填：
+
+```bash
+curl -s -X POST "http://localhost:8080/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"iPad Pro"}'
+```
+
+3. 保存成 `连接随航.workflow`
+4. 打开 **系统设置 → 键盘快捷键 → App 快捷键 → Automator** → 勾选「连接随航」→ 设一个组合键
+
+这样就是一个真正的全局快捷键，任意 App 下都能唤起。
+
+**AppleScript**：
 
 ```applescript
 -- 连接 Sidecar
-do shell script "curl -X POST http://localhost:8080/api/connect -d '{\"device_id\":\"iPad-Pro-11\"}'"
+do shell script "curl -s -X POST http://localhost:8080/connect -H 'Content-Type: application/json' -d '{\"name\":\"iPad Pro\"}'"
 
 -- 断开 Sidecar
-do shell script "curl -X POST http://localhost:8080/api/disconnect"
+do shell script "curl -s -X POST http://localhost:8080/disconnect -H 'Content-Type: application/json' -d '{}'"
+
+-- 列出设备
+do shell script "curl -s http://localhost:8080/devices"
 ```
+
+#### Keyboard Maestro
+
+1. 新建宏 → 触发器选 **快捷键**，指定组合键
+2. 动作选 **执行 shell 脚本**：
+
+```bash
+curl -s -X POST "http://localhost:8080/connect" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"iPad Pro"}'
+```
+
+Keyboard Maestro 还支持用 **Type/Text Trigger** 监听打字内容，适合做「口令」。
 
 #### Python 示例
 
+> 需要 `pip3 install requests`
+
 ```python
+import os
 import requests
 
-API_URL = "http://localhost:8080/api"
+API = f"http://localhost:{os.environ.get('SIDECAR_PORT', '8080')}"
+HEADERS = {"Content-Type": "application/json"}
+TIMEOUT = 30
 
-def connect_sidecar(device_id="iPad-Pro-11"):
-    """连接 Sidecar 设备"""
-    response = requests.post(f"{API_URL}/connect", json={
-        "device_id": device_id
-    })
-    return response.json()
 
-def disconnect_sidecar():
-    """断开 Sidecar 连接"""
-    response = requests.post(f"{API_URL}/disconnect")
-    return response.json()
+def list_devices():
+    """列出可用设备名"""
+    r = requests.get(f"{API}/devices", headers=HEADERS, timeout=10)
+    return r.json()["data"]["devices"]
 
-def get_status():
-    """获取连接状态"""
-    response = requests.get(f"{API_URL}/status")
-    return response.json()
 
-# 使用示例
+def connect(name="", wired=False):
+    """连接设备。name 留空 = 第一个可用设备"""
+    r = requests.post(f"{API}/connect", headers=HEADERS,
+                      json={"name": name, "wired": wired}, timeout=TIMEOUT)
+    return r.json()
+
+
+def disconnect(name=""):
+    """断开设备"""
+    r = requests.post(f"{API}/disconnect", headers=HEADERS,
+                      json={"name": name}, timeout=TIMEOUT)
+    return r.json()
+
+
+def toggle(name=""):
+    """切换连接状态"""
+    r = requests.post(f"{API}/toggle", headers=HEADERS,
+                      json={"name": name}, timeout=TIMEOUT)
+    return r.json()
+
+
 if __name__ == "__main__":
-    # 连接
-    print(connect_sidecar())
-    
-    # 查看状态
-    print(get_status())
-    
-    # 断开
-    print(disconnect_sidecar())
+    print(list_devices())
+    print(connect("iPad Pro", wired=True))
+    print(toggle("iPad Pro"))
 ```
+
+#### 🔤 口令触发（关键词 / 语音）
+
+不想用快捷键，也可以用「口令」——打几个字（或说一句话）就触发：
+
+| 工具 | 口令形式 | 配置位置 |
+|------|---------|---------|
+| **Alfred** | 敲 `sidecar` 回车 | Workflow Settings → Keyword |
+| **Raycast** | 打开 Raycast 敲 `sidecar` | Script Command 的 `@raycast.title` |
+| **快捷指令** | 用「听写」说出触发词 | 自动化 → 运行快捷指令 → 听写文本是「随航」 |
+| **Keyboard Maestro** | 敲入关键词 | 触发器 → Type/Text Trigger |
+| **Hammerspoon** | 敲入/说出关键词 | `hs.textExpander` / `hs.hotkey` |
+
+Hammerspoon 示例（⌥⌘S 连接 + 关键词「随航」触发）：
+
+```lua
+-- ~/.hammerspoon/init.lua
+local function sidecar()
+  hs.osascript([[
+    do shell script "curl -s -X POST http://localhost:8080/connect -H 'Content-Type: application/json' -d '{}'"
+  ]])
+end
+
+hs.hotkey.bind({"cmd", "alt"}, "S", sidecar)
+
+hs.textExpander.new("随航", sidecar)
+hs.textExpander:bindHotkeys({ {"cmd", "alt"}, "E" })
+```
+
+> `hs.textExpander` 会把命中的关键词替换成对应文本；若要**执行**动作，用 `hs.audiotext`（监听听写结果）或 `hs.eventtap`（监听按键）触发上面的函数。
 
 ---
 
@@ -386,111 +531,101 @@ if __name__ == "__main__":
 
 | 项目 | 值 |
 |------|-----|
-| **Base URL** | `http://localhost:8080/api` |
-| **Content-Type** | `application/json` |
-| **认证** | 无（仅限本机访问） |
+| **Base URL** | `http://localhost:<端口>`（默认 `8080`，可在偏好设置中修改） |
+| **Content-Type** | `application/json`（POST 请求必须带） |
+| **认证** | 默认关闭；开启后需带 `X-API-KEY` 请求头 |
+| **交互式文档** | `http://localhost:<端口>/docs`（需在偏好设置中开启「允许访问 API 文档」） |
 
-### 端点列表
+> ⚠️ **路径没有 `/api` 前缀。** 真实路径是 `/connect`、`/devices`；
+> `http://localhost:8080/api/connect` 会返回 404。
 
-#### GET /api/status
-获取当前随航连接状态
+### 端点速查
+
+| 方法 | 路径 | 说明 | 请求体 |
+|------|------|------|--------|
+| `GET` | `/devices` | 列出可用设备 | — |
+| `POST` | `/connect` | 连接设备 | `{ "name": "iPad Pro", "wired": true }` |
+| `POST` | `/disconnect` | 断开设备 | `{ "name": "iPad Pro" }` |
+| `POST` | `/toggle` | 切换连接状态 | `{ "name": "iPad Pro" }` |
+| `GET` | `/virtual_display/status` | 虚拟显示器状态 | — |
+| `GET` | `/virtual_display/sizes` | 可用尺寸预设列表 | — |
+| `POST` | `/virtual_display/size` | 设置尺寸预设 | `{ "definition_id": 10 }` |
+| `POST` | `/virtual_display/enable` | 启用虚拟显示器 | — |
+| `POST` | `/virtual_display/disable` | 关闭虚拟显示器 | — |
+
+### 统一响应格式
+
+所有响应都是同一个信封结构：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": { }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `code` | `0` 表示成功，非 `0` 表示错误 |
+| `message` | 可读的结果描述 |
+| `data` | 业务数据；出错时为 `null` |
+
+> ⚠️ 判断成功**请看 `code == 0`**，不要只看 HTTP 状态码，也不要找 `success` 字段——本 API 不返回 `success`。
+
+---
+
+#### GET /devices
+获取所有可用设备
 
 **请求：**
 ```http
-GET /api/status
+GET /devices
 ```
 
 **响应：**
 ```json
 {
-  "success": true,
-  "connected": true,
-  "device": {
-    "id": "iPad-Pro-11",
-    "name": "iPad Pro 11",
-    "model": "iPad Pro (11-inch) (3rd generation)",
-    "connection_type": "wired",
-    "connected_at": "2025-03-09T15:30:00Z"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "devices": ["iPad Pro", "iPad Air"]
   }
 }
 ```
 
-**状态码：**
-- `200` - 成功
-- `500` - 服务器错误
+`devices` 是**设备名字符串数组**（不是对象数组）。这个值就是后续 `/connect` 等接口的 `name` 参数取值。
 
 ---
 
-#### GET /api/devices
-获取所有可用的 iPad 设备列表
-
-**请求：**
-```http
-GET /api/devices
-```
-
-**响应：**
-```json
-{
-  "success": true,
-  "devices": [
-    {
-      "id": "iPad-Pro-11",
-      "name": "iPad Pro 11",
-      "model": "iPad Pro (11-inch) (3rd generation)",
-      "available": true,
-      "connection_type": "wired"
-    },
-    {
-      "id": "iPad-Air",
-      "name": "iPad Air",
-      "model": "iPad Air (4th generation)",
-      "available": true,
-      "connection_type": "wireless"
-    },
-    {
-      "id": "iPad-mini",
-      "name": "iPad mini",
-      "model": "iPad mini (6th generation)",
-      "available": false,
-      "reason": "Not on same network"
-    }
-  ],
-  "count": 3
-}
-```
-
----
-
-#### POST /api/connect
+#### POST /connect
 连接指定设备
 
 **请求：**
 ```http
-POST /api/connect
+POST /connect
 Content-Type: application/json
 
 {
-  "device_id": "iPad-Pro-11",
-  "force_wired": true
+  "name": "iPad Pro",
+  "wired": true
 }
 ```
 
 **参数：**
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `device_id` | string | 是 | 设备 ID（从 /api/devices 获取） |
-| `force_wired` | boolean | 否 | 强制使用有线连接（默认 false） |
+| `name` | string | 否 | 设备名（从 `/devices` 获取）。留空则自动选择第一个可用设备 |
+| `wired` | boolean | 否 | 是否强制有线连接，默认 `false`（无线） |
 
 **响应（成功）：**
 ```json
 {
-  "success": true,
-  "message": "Connected to iPad Pro 11",
-  "device": {
-    "id": "iPad-Pro-11",
-    "name": "iPad Pro 11",
-    "connection_type": "wired"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "device_name": "iPad Pro",
+    "status": "connected"
   }
 }
 ```
@@ -498,106 +633,118 @@ Content-Type: application/json
 **响应（失败）：**
 ```json
 {
-  "success": false,
-  "error": "Device not available",
-  "reason": "iPad mini is not on the same network"
+  "code": 1,
+  "message": "No reachable Sidecar devices detected",
+  "data": null
 }
 ```
 
-**状态码：**
-- `200` - 连接成功
-- `400` - 参数错误
-- `404` - 设备不存在
-- `500` - 连接失败
+> 设备名必须与 `/devices` 返回的字符串**完全一致**（含空格与中文）。
+> 不确定时先调 `/devices`，把结果原样传回。
 
 ---
 
-#### POST /api/disconnect
-断开当前连接
+#### POST /disconnect
+断开连接
 
 **请求：**
 ```http
-POST /api/disconnect
-```
-
-**响应：**
-```json
-{
-  "success": true,
-  "message": "Disconnected from iPad Pro 11"
-}
-```
-
-**状态码：**
-- `200` - 断开成功
-- `404` - 当前无连接
-- `500` - 断开失败
-
----
-
-#### GET /api/config
-获取当前配置
-
-**请求：**
-```http
-GET /api/config
-```
-
-**响应：**
-```json
-{
-  "success": true,
-  "config": {
-    "web_server_enabled": true,
-    "web_server_port": 8080,
-    "force_wired_mode": false,
-    "auto_connect_on_startup": false,
-    "preferred_device": "iPad-Pro-11"
-  }
-}
-```
-
----
-
-#### PUT /api/config
-更新配置
-
-**请求：**
-```http
-PUT /api/config
+POST /disconnect
 Content-Type: application/json
 
 {
-  "force_wired_mode": true,
-  "auto_connect_on_startup": true
+  "name": "iPad Pro"
 }
 ```
+
+**参数：**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 设备名。留空则断开当前连接 |
 
 **响应：**
 ```json
 {
-  "success": true,
-  "message": "Configuration updated",
-  "config": {
-    "force_wired_mode": true,
-    "auto_connect_on_startup": true
+  "code": 0,
+  "message": "success",
+  "data": {
+    "device_name": "iPad Pro",
+    "status": "disconnected"
   }
 }
 ```
 
 ---
 
-### 错误响应格式
+#### POST /toggle
+切换连接状态（已连接则断开，未连接则连接）
 
-所有错误遵循统一格式：
+**请求：**
+```http
+POST /toggle
+Content-Type: application/json
 
+{
+  "name": "iPad Pro"
+}
+```
+
+**参数：**
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 设备名。留空则作用于第一个可用设备 |
+
+**响应：**
 ```json
 {
-  "success": false,
-  "error": "Error type",
-  "reason": "Detailed error message",
-  "timestamp": "2025-03-09T15:30:00Z"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "result": "Successfully connected to 'iPad Pro'."
+  }
 }
+```
+
+> 💡 做「一键开关」时用 `/toggle` 比 `/connect` + `/disconnect` 更省事。
+
+---
+
+#### 虚拟显示器
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/virtual_display/status` | 返回 `{ "enabled": bool, "active": bool, "definition_id": int }` |
+| `GET` | `/virtual_display/sizes` | 返回尺寸预设数组 `{ "id": int, "description": "..." }` |
+| `POST` | `/virtual_display/size` | 请求体 `{ "definition_id": int }`，设置当前尺寸预设 |
+| `POST` | `/virtual_display/enable` | 启用虚拟显示器（用当前尺寸预设） |
+| `POST` | `/virtual_display/disable` | 关闭虚拟显示器 |
+
+尺寸预设 ID（如 `10` = 16:9、`400` = iPad Pro 11）见 [MCP-API.md](mcp-clients/MCP-API.md#12-list_virtual_display_sizes)。
+
+---
+
+### 认证
+
+在偏好设置中开启「启用认证」后，所有请求都要带 API Key：
+
+```bash
+curl -X POST "http://localhost:8080/connect" \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: <你的 API Key>" \
+  -d '{"name":"iPad Pro"}'
+```
+
+---
+
+### 端口
+
+端口在**偏好设置 → Web 服务端口**里修改（默认 `8080`），**改完需要重启服务**才生效。
+
+脚本里如果不想把端口写死，可以先读一次偏好设置，或用环境变量：
+
+```bash
+PORT="${SIDECAR_PORT:-8080}"
+curl -s "http://localhost:${PORT}/devices"
 ```
 
 ---
@@ -768,10 +915,10 @@ await client.connect(transport);
 const tools = await client.listTools();
 console.log(tools);
 
-// 调用工具
+// 调用工具（异步连接，避免阻塞）
 const result = await client.callTool({
-  name: "connect_sidecar",
-  arguments: { device_id: "iPad-Pro-11" }
+  name: "connect_device_async",
+  arguments: { device_name: "iPad Pro", wired: false }
 });
 ```
 
@@ -779,16 +926,28 @@ const result = await client.callTool({
 
 ### MCP 工具列表
 
-SidecarOneStep 提供以下 MCP 工具：
+SidecarOneStep 提供以下 MCP 工具（完整参数与返回示例见 [mcp-clients/MCP-API.md](mcp-clients/MCP-API.md)）：
 
 | 工具名称 | 功能 | 参数 |
 |---------|------|------|
 | `list_devices` | 列出可用的 iPad 设备 | 无 |
-| `connect_sidecar` | 连接到指定设备 | `device_id`, `force_wired` (可选) |
-| `disconnect_sidecar` | 断开当前连接 | 无 |
-| `get_status` | 获取连接状态 | 无 |
-| `get_config` | 获取当前配置 | 无 |
-| `set_config` | 更新配置 | 配置对象 |
+| `connect_device` | 同步连接设备（**可能阻塞约 15s**） | `device_name`, `wired` (可选) |
+| `connect_device_async` | 异步连接，返回 `job_id`（**推荐**） | `device_name`, `wired` (可选) |
+| `get_job_status` | 查询异步任务结果 | `job_id` |
+| `cancel_job` | 取消等待中的任务 | `job_id` |
+| `disconnect_device` | 断开设备 | `device_name` (可选) |
+| `start_http_server` | 启动 HTTP 控制服务 | `port` (可选) |
+| `stop_http_server` | 停止 HTTP 控制服务 | 无 |
+| `get_status` | 获取 App 与连接状态 | 无 |
+| `get_logs` | 读取最近的服务日志 | `limit` (可选) |
+| `virtual_display_status` | 获取虚拟显示器状态 | 无 |
+| `list_virtual_display_sizes` | 列出可用尺寸预设 | 无 |
+| `set_virtual_display_size` | 设置尺寸预设 | `definition_id` |
+| `enable_virtual_display` | 启用虚拟显示器 | 无 |
+| `disable_virtual_display` | 关闭虚拟显示器 | 无 |
+
+> ⚠️ MCP 工具的参数名是 `device_name` / `wired`，
+> **和 REST API 的 `name` / `wired` 不一样**——REST 用 `name`，MCP 用 `device_name`。
 
 ### 使用示例
 
@@ -804,7 +963,7 @@ You have 2 available devices:
 
 用户: Connect to iPad Pro 11 with wired mode
 
-Claude: [调用 connect_sidecar]
+Claude: [调用 connect_device_async → 拿到 job_id，再轮询 get_job_status]
 ✅ Connected to iPad Pro 11 via wired connection.
 Your iPad is now ready to use as a second display.
 
@@ -863,7 +1022,7 @@ npx @modelcontextprotocol/inspector \
 
 ```bash
 # 查看所有预设配置
-ls /opt/project/sidecarOneStep/mcp-clients/
+ls mcp-clients/
 
 # 输出：
 # - claude_desktop.json
@@ -943,19 +1102,19 @@ ls /opt/project/sidecarOneStep/mcp-clients/
 **A:** 安全性说明：
 
 **当前安全措施：**
-- ✅ 仅监听局域网（127.0.0.1 / 192.168.x.x）
-- ✅ 不对外开放端口
-- ✅ 无公网访问
+- ✅ 默认仅本机访问（`127.0.0.1`）
+- ✅ 可在偏好设置里开启 **「启用认证」**——之后所有请求都要带 `X-API-KEY` 请求头
+- ✅ 「允许公网访问」默认关闭；开启后局域网内其他设备也能访问控制页
+- ✅ 「允许访问 API 文档 (/docs)」默认关闭，需要时再单独开
 
 **建议：**
+- ⚠️ 开启「允许公网访问」务必同时打开「启用认证」并设置强 API Key
 - ⚠️ 仅在受信任的 WiFi 网络使用
 - ⚠️ 避免在公共 WiFi 启用
-- ⚠️ 如需远程访问，使用 VPN
+- ⚠️ 如需远程访问，优先使用 VPN
 
 **未来计划：**
-- 🔐 密码保护
 - 🔐 HTTPS 支持
-- 🔐 Token 认证
 - 🔐 访问日志
 </details>
 
@@ -998,26 +1157,21 @@ tccutil reset Accessibility
 <details>
 <summary><strong>Q: API 端口可以修改吗？</strong></summary>
 
-**A:** 可以！
+**A:** 可以！在**偏好设置 → Web 服务端口**里改（默认 `8080`）。
 
-**方式 1：GUI 设置**
-1. 点击菜单栏图标
-2. 选择"偏好设置"
-3. 修改"Web 服务端口"
+> ⚠️ **改完需要重启服务**才生效（菜单栏 → 停止 Web 服务 → 重新启动）。
 
-**方式 2：API 修改**
-```bash
-curl -X PUT http://localhost:8080/api/config \
-  -H "Content-Type: application/json" \
-  -d '{"web_server_port": 9090}'
+也可以用 MCP 工具在启动时指定端口：
+
+```json
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"start_http_server","arguments":{"port":9090}}}
 ```
 
-**方式 3：配置文件**
-编辑 `~/.sidecaronestep/config.json`：
-```json
-{
-  "web_server_port": 9090
-}
+脚本里建议用环境变量，别把端口写死：
+
+```bash
+PORT="${SIDECAR_PORT:-8080}"
+curl -s "http://localhost:${PORT}/devices"
 ```
 </details>
 
@@ -1128,7 +1282,8 @@ copies or substantial portions of the Software.
 
 ## 📞 联系方式
 
-- 🏠 **官网**: [https://sidecaronestep.app.murphyyi.com/](https://sidecaronestep.app.murphyyi.com/)
+- 🏠 **官网**: [https://sidecaronestep.app.murphyyi.com/](https://sidecaronestep.app.murphyyi.com/)（文档站建设中，当前以本文档与 `/docs` 为准）
+- 📦 **下载**: [Releases](https://github.com/yi-nology/sidecarOneStep/releases)
 - 🐙 **GitHub**: [yi-nology/sidecarOneStep](https://github.com/yi-nology/sidecarOneStep)
 - 📧 **Email**: [your-email@example.com]
 - 🐦 **Twitter**: [@MurphyYi]
